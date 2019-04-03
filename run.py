@@ -85,3 +85,6 @@ test_word('marginalny', [word_generator, polish_word_generator])
 test_word('marginalization', [word_generator, polish_word_generator])
 test_word('marginalizacja', [word_generator, polish_word_generator])
 test_word('mastereo', [word_generator, polish_word_generator])
+
+print(word_generator.find_most_probable_words(10))
+print(polish_word_generator.find_most_probable_words(10))

@@ -2,6 +2,7 @@ import math
 from operator import itemgetter, mul
 from random import randint
 from functools import reduce
+from queue import PriorityQueue
 from dictionary import Dictionary
 
 class WordMarkovModel:
@@ -86,7 +87,7 @@ class WordMarkovModel:
 		"""
 		word_ngrams = Dictionary.build_ngrams_of_word(word, self.model_order + 1, with_ending)
 		ngrams_probabilities = list(map(self.find_ngram_probability, word_ngrams))
-		total_probability = reduce(mul, ngrams_probabilities)
+		total_probability = reduce(mul, ngrams_probabilities, 1)
 		return (total_probability, ngrams_probabilities)
 
 	def find_ngram_probability(self, ngram):
@@ -102,6 +103,76 @@ class WordMarkovModel:
 		if postchain in transition:
 			probability = transition[postchain] / transition['##sum']
 		return probability
+
+	def find_most_probable_words(self, words_count=1):
+		"""Find most probable words
+
+		Find most probable words according to the trained model transitions
+		words_count is an integer indicating how many of most probable words to return
+		"""
+		most_probable_words = []
+		most_probable_queue = PriorityQueue()
+
+		def word_entry(word, word_probability=None):
+			"""Return a word entry for the priority queue
+			The entry is a pair, first element is the priority which must reverse the ordering
+			ie, the highest probability goes first, so the priority is the complementary probability
+			priority is set to 1 - word probability
+			the second element is the word itself
+			the optional argument, word_probability, is the probability of the word to use
+			if not given, the word probability is calculated using model's find_word_probability() method
+			the ability to pass word probability as an argument is given
+			to avoid recalculating word probability as the algorithm searches for next (eventually longer) words
+			the probability can be efficiently updated at each transition, by multiplying words probability with transition probability"""
+			if word_probability == None:
+				word_probability = self.find_word_probability(word, with_ending=False)[0]
+			return (1 - word_probability, word)
+
+		current_word = ''
+		most_probable_queue.put(word_entry(current_word))
+
+		iteration = 0
+		max_queue_size = 0
+
+		# use priority queue to keep track of most probable words
+		# starting with an empty word
+		# append possible transitions to word currently expanded
+		# and calculate the probability of such newly built words (by multiplying with corresponding transition probabilities)
+		# the most probable words will have highest priorities so will be returned first from the priority queue
+		# they will be also considered first, and expanded till the words are terminated with end character
+		# once a terminated word is retrieved from the priority queue, 
+		# it must have highest probability (higher than any other words that can be built from substrings that are in the queue)
+		# hence greedily expanding substrings of highest probability 
+		# till they are terminated with an end character (and retrieved from the priority queue)
+		# gives most probable words
+		while most_probable_queue.empty() == False and len(most_probable_words) < words_count:
+			iteration += 1
+			current_queue_size = most_probable_queue.qsize()
+			if current_queue_size > max_queue_size:
+				max_queue_size = current_queue_size
+
+			current_entry = most_probable_queue.get()
+			current_word = current_entry[1]
+			current_word_probability = 1 - current_entry[0]
+
+			if current_word[-1:] == Dictionary.END_CHARACTER:
+				most_probable_words.append(current_word[:-1])
+				continue
+
+			current_ngram = Dictionary.build_ngram_for(current_word, self.model_order)
+			current_transitions = WordMarkovModel.transition_occurences_to_probabilities(self.transitions[current_ngram])
+			for postchain, probability in current_transitions:
+				most_probable_queue.put(word_entry(current_word + postchain, current_word_probability * probability))
+
+		return [list(map(lambda word: (word, self.find_word_probability(word)), most_probable_words)), iteration, max_queue_size]
+
+	def transition_occurences_to_probabilities(transitions):
+		"""Transform transition with occurences to transitions with probabilities"""
+		occurences_sum = transitions['##sum']
+		transition_items = list(filter(lambda x: x[0] != '##sum', transitions.items()))
+		return list(map(lambda x: (x[0], x[1] / occurences_sum), transition_items))
+
+
 
 	def generate_next_character(self, word_ngram, end_character=True):
 		"""Generate next character for the word ngram being built
